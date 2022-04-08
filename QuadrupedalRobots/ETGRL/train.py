@@ -57,15 +57,23 @@ mode_map ={"pose":robot_config.MotorControlMode.POSITION,
             "traj":robot_config.MotorControlMode.POSITION,}
 
 def LS_sol(A,b,precision=1e-4,alpha=0.05,lamb=1,w0=None):
+    """最小二乘法solver
+    args:
+        A - obs data shape (6, 20)
+        b - bias  (6, 1)
+        precision - precision of solver
+        alpha - learning rate"""
+    # print("===A, b shape===", A.shape, b.shape)
     n,m = A.shape
     if w0 is not None:
         x = copy(w0)
     else:
-        x = np.zeros((m,1))
+        x = np.zeros((m,1)) # shape (20, 1)
     err = A.dot(x)-b
     err = err.transpose().dot(err)
     i = 0
     diff = 1
+    # iteration for x parameters
     while err > precision and i<1000:
         A1 = A.transpose().dot(A)
         dx = A1.dot(x)-A.transpose().dot(b)
@@ -79,6 +87,11 @@ def LS_sol(A,b,precision=1e-4,alpha=0.05,lamb=1,w0=None):
     return x
 
 def Opt_with_points(ETG,ETG_T=0.4,points=None,b0=None,w0=None,precision=1e-4,lamb=0.5,plot=False,**kwargs):
+    """
+    使用优化算法得到点集. 首先根据CPG-RBF获得观测列表obs；然后利用给定的points和obs来拟合参数w；
+    ETG - ETG Layer，用于生成CPG控制信号，其公式见论文(6)(7)
+    points - 足迹点foot trajectory space，(N, 2)，2代表着二维平面坐标？    
+    """
     ts = [0.5*ETG_T+0.1,0,0.05,0.1,0.15,0.2]
     if points is None:
         Steplength = kwargs["Steplength"] if "Steplength" in kwargs else 0.05
@@ -86,16 +99,19 @@ def Opt_with_points(ETG,ETG_T=0.4,points=None,b0=None,w0=None,precision=1e-4,lam
         Penetration = kwargs["Penetration"] if "Penetration" in kwargs else 0.01
         points = np.array([[0,-Penetration],[-Steplength,-Penetration*0.5],[-Steplength*1.5,0.6*Footheight],[0,Footheight],
                     [Steplength*1.5,0.6*Footheight],[Steplength,-Penetration*0.5]])
+    # 生成观察obs数据
     obs = []
     for t in ts:
-        v = ETG.update(t)
+        v = ETG.update(t) # 对应文章公式6,7,8 
         obs.append(v)
-    obs = np.array(obs).reshape(-1,20)
+    obs = np.array(obs).reshape(-1,20) # (6, 20)
     if b0 is None:
         b = np.mean(points,axis=0)
     else:
-        b = np.array([b0[0],b0[-1]])
-    points_t = points-b
+        b = np.array([b0[0],b0[-1]]) # (1, 2)
+    # print('===point and obs===>', points, b, (points-b)[:,0].shape)
+    # 使用最小二乘法求解w_,b_
+    points_t = points-b # (6, 2)
     if w0 is None:
         x1 = LS_sol(A=obs,b=points_t[:,0].reshape(-1,1),precision=precision,alpha=0.05)
         x2 = LS_sol(A=obs,b=points_t[:,1].reshape(-1,1),precision=precision,alpha=0.05)
@@ -105,9 +121,10 @@ def Opt_with_points(ETG,ETG_T=0.4,points=None,b0=None,w0=None,precision=1e-4,lam
     w = np.stack((x1,x2),axis=0).reshape(2,-1)
     # if plot:
     #     plot_gait(w,b,ETG,points)
-    w_ = np.stack((x1,np.zeros((20,1)),x2),axis=0).reshape(3,-1)
-    b_ = np.array([b[0],0,b[1]])
-    return w_,b_,points
+    w_ = np.stack((x1,np.zeros((20,1)),x2),axis=0).reshape(3,-1) # shape(3, 20)
+    b_ = np.array([b[0],0,b[1]]) #shape (3, )
+    # print("===w, b_ shape===", w_.shape, b_.shape)
+    return w_, b_, points
  
 def param2dynamic_dict(params):
     param = copy(params)
@@ -127,7 +144,9 @@ def param2dynamic_dict(params):
   
 # Run episode for training
 def run_train_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
-    action_dim = env.action_space.shape[0]
+    """在一个episode里面，首先进行囤积样本到rpm中，数量为WARMUP_STEPS。当rpm.size()>=WARMUP_STEPS时，从rpm中采样
+    BATCH_SIZE的样本，使用agent_learn进行一个episode的训练"""
+    action_dim = env.action_space.shape[0] # 12 
     obs,info = env.reset(ETG_w=w,ETG_b=b,x_noise=args.x_noise)
     done = False
     episode_reward, episode_steps = 0, 0
@@ -140,8 +159,11 @@ def run_train_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
         # Select action randomly or according to policy
         if rpm.size() < WARMUP_STEPS:
             action = np.random.uniform(-1, 1, size=action_dim)
+            # print('===action random===', rpm.size(), WARMUP_STEPS)
         else:
             action = agent.sample(obs)
+            # print('===action agent===')
+
         new_action = copy(action)
         # Perform action
         next_obs, reward, done, info = env.step(new_action*action_bound,donef=(episode_steps>max_step))
@@ -174,7 +196,7 @@ def run_train_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
         infos["actor_loss"] = np.mean(actor_loss_list)
     infos["success_rate"] = success_num/episode_steps
     # logger.info('Torso:{} Feet:{} Up:{} Tau:{}'.format(infos['torso'],infos['feet'],infos['up'],infos['tau']))
-    # print("success_rate:",success_num/episode_steps)
+    print("success_rate:",success_num/episode_steps)
     return episode_reward, episode_steps,infos
 
 # Runs policy for 5 episodes by default and returns average reward
@@ -211,6 +233,7 @@ def run_evaluate_episodes(agent, env,max_step,action_bound,w=None,b=None):
     return avg_reward,steps_all,infos
 
 def run_EStrain_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
+    """其中没有进行训练，只是执行了action，并得到反馈next_obs, reward, done, info。"""
     action_dim = env.action_space.shape[0]
     obs,info = env.reset(ETG_w=w,ETG_b=b,x_noise=args.x_noise)
     done = False
@@ -246,7 +269,7 @@ def run_EStrain_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
     infos["success_rate"] = success_num/episode_steps
     # logger.info('Torso:{} Feet:{} Up:{} Tau:{}'.format(infos['torso'],infos['feet'],infos['up'],infos['tau']))
     # print("success_rate:",success_num/episode_steps)
-    return episode_reward, episode_steps,infos
+    return episode_reward, episode_steps, infos
 
 
 def main():
@@ -294,8 +317,10 @@ def main():
                 popsize=args.popsize,
                 param = ETG_param_init)
     phase = np.array([-np.pi/2,0])
+    # 得到agent，以产生obs数据---ET-CPG
     ETG_agent = ETG_layer(args.ETG_T,0.026,args.ETG_H,0.04,phase,0.2,args.ETG_T2)
-    w0,b0,prior_points = Opt_with_points(ETG=ETG_agent,ETG_T=args.ETG_T,
+    # 得到obs的拟合初始参数w0、b0和prior_points
+    w0, b0, prior_points = Opt_with_points(ETG=ETG_agent,ETG_T=args.ETG_T,
                                             Footheight=args.footheight,Steplength=args.steplen)
     if not os.path.exists(args.ETG_path):
         np.savez(args.ETG_path,w=w0,b=b0,param=prior_points)
@@ -308,9 +333,9 @@ def main():
                         ETG_H = args.ETG_H, vel_d = args.vel_d,step_y=args.step_y,
                         enable_action_filter=args.enable_action_filter)
     e_step = args.e_step
-    obs_dim = env.observation_space.shape[0]
-    action_dim = env.action_space.shape[0]
-    print('obs_dim:',obs_dim)
+    obs_dim = env.observation_space.shape[0] #shape (49,)
+    action_dim = env.action_space.shape[0] # shape (12,)
+    # print('===obs_dim=== ',obs_dim, action_dim)
     act_bound_now = args.act_bound
     if args.act_mode == "pose":
         act_bound = np.array([0.1,0.7,0.7]*4)
@@ -318,10 +343,13 @@ def main():
         act_bound = np.array([10]*12)
     elif args.act_mode == "traj":
         act_bound = np.array([act_bound_now,act_bound_now,act_bound_now]*4)
+    
     # Initialize model, algorithm, agent, replay_memory
+    # actor and critic model
     model = MujocoModel(obs_dim, action_dim)
-    rpm = ReplayMemory(
-    max_size=MEMORY_SIZE, obs_dim=obs_dim, act_dim=action_dim)
+    # Replay Memory to save the collection of the H_t={O_t, R_t, A_t}
+    rpm = ReplayMemory(max_size=MEMORY_SIZE, obs_dim=obs_dim, act_dim=action_dim)
+    # SAC algorithm for optimizing the model
     algorithm = SAC(
         model,
         gamma=GAMMA,
@@ -329,7 +357,9 @@ def main():
         alpha=ALPHA,
         actor_lr=ACTOR_LR,
         critic_lr=CRITIC_LR)
+    # warp the different algorithm for learning
     agent = MujocoAgent(algorithm)
+
     if len(args.load)>0:
         agent.restore(args.load)
     if not args.eval:
@@ -346,14 +376,17 @@ def main():
         t_steps = 0
 
         #init w,b
+        # get the best foot trajectory param
         ETG_best_param = ES_solver.get_best_param()
         points_add = ETG_best_param.copy().reshape(-1,2)
-        new_points = prior_points+points_add
+        new_points = prior_points + points_add
+        #get the w,b
         w,b,_ = Opt_with_points(ETG=ETG_agent,ETG_T=args.ETG_T,w0=w0,b0=b0,points=new_points)
+
         ES_step = 0
         while total_steps < args.max_steps:
             # Train episode
-            episode_reward, episode_step,info = run_train_episode(agent, env, rpm,e_step,act_bound,w,b)
+            episode_reward, episode_step, info = run_train_episode(agent, env, rpm, e_step, act_bound, w, b)
             total_steps += episode_step
             t_steps += episode_step
             summary.add_scalar('train/episode_reward', episode_reward,
@@ -367,10 +400,11 @@ def main():
             logger.info('Total Steps: {} Reward: {}'.format(
                 total_steps, episode_reward))
             # Evaluate episode
+            # print('---line 403---', total_steps, (total_steps + 1) // EVAL_EVERY_STEPS, test_flag)
             if (total_steps + 1) // EVAL_EVERY_STEPS >= test_flag:
                 while (total_steps + 1) // EVAL_EVERY_STEPS >= test_flag:
                     test_flag += 1
-                    avg_reward,avg_step,info = run_evaluate_episodes(agent, env,600,act_bound,w,b)
+                    avg_reward,avg_step,info = run_evaluate_episodes(agent, env, 600, act_bound, w, b)
                     logger.info('Evaluation over: {} episodes, Reward: {} Steps: {} '.format(
                     EVAL_EPISODES, avg_reward,avg_step))
                     summary.add_scalar('eval/episode_reward', avg_reward,
@@ -382,41 +416,52 @@ def main():
                             summary.add_scalar('eval/episode_{}'.format(key),info[key],total_steps)
                             summary.add_scalar('eval/mean_{}'.format(key),info[key]/avg_step,total_steps)   
                 if e_step<600:
-                        e_step +=50
+                        e_step += 50
                 path = os.path.join(outdir,'itr_{:d}.pt'.format(int(total_steps)))
                 # if not os.path.exists(path):
                 #     os.mkdir(path)
                 agent.save(path) 
                 np.savez(os.path.join(outdir,'itr_{:d}.npz'.format(int(total_steps))),w=w,b=b,param=ETG_best_param)    
-    
+
+            # ES: Use dual training procedure or not.
+            # print('---line 427---', args.ES and (total_steps + 1) // ES_EVERY_STEPS >= ES_test_flag and total_steps >= WARMUP_STEPS)
             if args.ES and (total_steps + 1) // ES_EVERY_STEPS >= ES_test_flag and total_steps >= WARMUP_STEPS:
                 while (total_steps + 1) // ES_EVERY_STEPS >= ES_test_flag:
                     ES_test_flag += 1
-                    best_reward,avg_step,info = run_EStrain_episode(agent, env,rpm,400,act_bound,w,b)
+                    best_reward,avg_step,info = run_EStrain_episode(agent, env,rpm, 400, act_bound, w, b)
                     best_param = ETG_best_param.copy().reshape(-1)
                     for ei in range(ES_TRAIN_STEPS):
-                        solutions = ES_solver.ask()
+                        # print("===use dual training process===.", eis, ES_TRAIN_STEPS)
+                        solutions = ES_solver.ask() # generate foot trajectory space. 
                         fitness_list = []
                         steps = []
                         infos = {}
                         for key in Param_Dict.keys():
                             infos[key] = 0
+                        # solutions->shape:(40, 12), solution->shape:(12,)
                         for solution in solutions:
+                            # print("---solution info--->", solutions.shape, solution.shape)
                             points_add = solution.reshape(-1,2)
                             new_points = prior_points+points_add
+                            # get the w and b for interacting with env
                             w,b,_ = Opt_with_points(ETG=ETG_agent,ETG_T=args.ETG_T,w0=w0,b0=b0,points=new_points)
                             episode_reward, episode_step,info = run_EStrain_episode(agent, env, rpm,400,act_bound,w,b)
+                            # print('---episode_reward, episode step--->', (episode_reward, episode_step))
                             fitness_list.append(episode_reward)
                             steps.append(episode_step)
                             for key in infos.keys():
                                 infos[key] += info[key]/args.popsize
+                        
                         fitness_list = np.asarray(fitness_list).reshape(-1)
                         max_index = np.argmax(fitness_list)
+                        # get the parameters with max episode_reward
                         if fitness_list[max_index]>best_reward:
                             best_param = solutions[max_index]
                             best_reward = fitness_list[max_index]
+                        # obtain the best solution and reward, return as results
                         ES_solver.tell(fitness_list)
                         results = ES_solver.result()
+
                         ES_step += 1
                         sig = np.mean(results[3])
                         logger.info('ESSteps: {} Reward: {} step: {}  sigma:{}'.format(ES_step, np.max(fitness_list),np.mean(steps),sig))
@@ -430,11 +475,14 @@ def main():
                             if infos[key]!=0:
                                 summary.add_scalar('train/episode_{}'.format(key),infos[key],ES_step)
                                 summary.add_scalar('train/mean_{}'.format(key),infos[key]/np.mean(steps),ES_step)
+                
+                # update w and b using new_points
                 ETG_best_param = best_param
                 points_add = ETG_best_param.reshape(-1,2)
                 new_points = prior_points+points_add
                 w,b,_ = Opt_with_points(ETG=ETG_agent,ETG_T=args.ETG_T,w0=w0,b0=b0,points=new_points)  
                 ES_solver.reset(ETG_best_param)
+
     elif args.eval == 1:
         ETG_info = np.load(args.load[:-3]+".npz")
         w = ETG_info["w"]

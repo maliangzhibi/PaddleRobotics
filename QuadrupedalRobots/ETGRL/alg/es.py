@@ -296,11 +296,11 @@ class SimpleGA:
     else:
       reward = np.concatenate([reward_table, self.elite_rewards])
       solution = np.concatenate([self.solutions, self.elite_params])
-
+    # get the maximum elite_popsize number rewards
     idx = np.argsort(reward)[::-1][0:self.elite_popsize]
 
-    self.elite_rewards = reward[idx]
-    self.elite_params = solution[idx]
+    self.elite_rewards = reward[idx] # the n best rewards
+    self.elite_params = solution[idx] # the n best rewards solution
 
     self.curr_best_reward = self.elite_rewards[0]
     self.curr_best_param = np.copy(self.elite_params[0])

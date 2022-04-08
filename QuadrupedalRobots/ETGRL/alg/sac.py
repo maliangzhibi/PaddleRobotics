@@ -29,7 +29,7 @@ class SAC(parl.Algorithm):
                  alpha=None,
                  actor_lr=None,
                  critic_lr=None):
-        """ SAC algorithm
+        """ SAC algorithm: optimize the actor model and critic model
             Args:
                 model(parl.Model): forward network of actor and critic.
                 gamma(float): discounted factor for reward computation

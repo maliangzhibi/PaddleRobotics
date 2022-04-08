@@ -95,6 +95,7 @@ def run_train_episode(agent, env, rpm,max_step,action_bound,ref_agent=None,total
     critic_loss_list = []
     train_flag = 0
     while not done:
+        # 是否给agent的obs加传感器噪声，ref的obs不变
         agent_obs = cal_agent_obs(obs)
         ref_obs = cal_ref_obs(obs)
         episode_steps += 1
@@ -104,6 +105,7 @@ def run_train_episode(agent, env, rpm,max_step,action_bound,ref_agent=None,total
         else:
             action = agent.sample(agent_obs)
         new_action = copy(action)
+        
         # Perform action
         next_obs, reward, done, info = env.step(new_action*action_bound,donef=(episode_steps>max_step))
         terminal = float(done) if episode_steps < 2000 else 0
