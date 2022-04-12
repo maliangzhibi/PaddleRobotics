@@ -104,3 +104,6 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# train_log
+./QuadrupedalRobots/ETGRL/train_log
