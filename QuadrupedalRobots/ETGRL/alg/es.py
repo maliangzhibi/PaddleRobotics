@@ -234,8 +234,9 @@ class SimpleGA:
     self.elite_popsize = int(self.popsize * self.elite_ratio)
 
     self.sigma = self.sigma_init
-    self.elite_params = np.zeros((self.elite_popsize, self.num_params))
+    self.elite_params = np.zeros((self.elite_popsize, self.num_params)) #(4, 12）
     self.elite_rewards = np.zeros(self.elite_popsize)
+    # print(r'es.py line239: ', self.elite_params.shape, self.elite_rewards.shape)
     if param is None:
       self.best_param = np.zeros(self.num_params)
     else:

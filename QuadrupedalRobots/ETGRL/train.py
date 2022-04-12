@@ -145,7 +145,14 @@ def param2dynamic_dict(params):
 # Run episode for training
 def run_train_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
     """在一个episode里面，首先进行囤积样本到rpm中，数量为WARMUP_STEPS。当rpm.size()>=WARMUP_STEPS时，从rpm中采样
-    BATCH_SIZE的样本，使用agent_learn进行一个episode的训练"""
+    BATCH_SIZE的样本，使用agent_learn进行一个episode的训练.
+    env.reset中传入w和b是如何与ETG_model发生作用的？(详细可参考rlschool中的quadrupedal/env/env_wrappers/MonitorEnv.py的ETGWrapper类中的实现)
+    1. 首先在reset方法中传入的参数判断是否存在ETG_w和ETG_b两个参数，存在则定义self.ETG_w和self.ETG_b
+    2. 将self.ETG_w和self.ETG_b两个参数传入self.ETG_model中，，使用该模型生成act_ref;
+    3. 使用self.ETG_model.act_clip()，根据act_ref进行逆运动学的机器人脚关节轨迹的生成
+    4. 使用act_ref生成self.last_ETG_act，作为Evolutionary Trajectory Generator生成的action
+    5. 在step()方法中，将产生的actionRL传入，并与self.last_ETG_act相加，得到合成的action
+    """
     action_dim = env.action_space.shape[0] # 12 
     obs,info = env.reset(ETG_w=w,ETG_b=b,x_noise=args.x_noise)
     done = False
@@ -233,7 +240,7 @@ def run_evaluate_episodes(agent, env,max_step,action_bound,w=None,b=None):
     return avg_reward,steps_all,infos
 
 def run_EStrain_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
-    """其中没有进行训练，只是执行了action，并得到反馈next_obs, reward, done, info。"""
+    """其中没有进行训练，只是执行了action，并得到反馈next_obs, reward, done, info."""
     action_dim = env.action_space.shape[0]
     obs,info = env.reset(ETG_w=w,ETG_b=b,x_noise=args.x_noise)
     done = False
