@@ -108,3 +108,4 @@ ENV/
 # train_log
 QuadrupedalRobots/ETGRL/train_log/*.npz
 QuadrupedalRobots/ETGRL/train_log/*.pt
+QuadrupedalRobots/ETGRL/train_log/*.log

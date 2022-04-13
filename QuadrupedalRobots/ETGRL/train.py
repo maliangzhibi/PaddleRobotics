@@ -169,7 +169,6 @@ def run_train_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
             # print('===action random===', rpm.size(), WARMUP_STEPS)
         else:
             action = agent.sample(obs)
-            # print('===action agent===')
 
         new_action = copy(action)
         # Perform action
@@ -204,7 +203,7 @@ def run_train_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
     infos["success_rate"] = success_num/episode_steps
     # logger.info('Torso:{} Feet:{} Up:{} Tau:{}'.format(infos['torso'],infos['feet'],infos['up'],infos['tau']))
     print("success_rate:",success_num/episode_steps)
-    return episode_reward, episode_steps,infos
+    return episode_reward, episode_steps, infos
 
 # Runs policy for 5 episodes by default and returns average reward
 # A fixed seed is used for the eval environment
@@ -239,7 +238,7 @@ def run_evaluate_episodes(agent, env,max_step,action_bound,w=None,b=None):
     steps_all += steps
     return avg_reward,steps_all,infos
 
-def run_EStrain_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
+def run_EStrain_episode(agent, env, rpm, max_step, action_bound, w=None, b=None):
     """其中没有进行训练，只是执行了action，并得到反馈next_obs, reward, done, info."""
     action_dim = env.action_space.shape[0]
     obs,info = env.reset(ETG_w=w,ETG_b=b,x_noise=args.x_noise)
@@ -248,7 +247,8 @@ def run_EStrain_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
     infos = {}
     success_num = 0
     critic_loss_list = []
-    actor_loss_list = [] 
+    actor_loss_list = []
+     
     while not done:
         episode_steps += 1
         # Select action randomly or according to policy
@@ -258,12 +258,13 @@ def run_EStrain_episode(agent, env, rpm,max_step,action_bound,w=None,b=None):
         next_obs, reward, done, info = env.step(new_action*action_bound,donef=(episode_steps>max_step))
         terminal = float(done) if episode_steps < 2000 else 0
         terminal = 1. - terminal
+        
         for key in Param_Dict.keys():
             if key in info.keys():
                 if key not in infos.keys():
                     infos[key] = info[key]
                 else:
-                    infos[key] += info[key]
+                    infos[key] += info[key]                    
         if info["velx"]>=0.3:
             success_num +=1
         # Store data in replay memory
@@ -438,11 +439,11 @@ def main():
                     best_reward,avg_step,info = run_EStrain_episode(agent, env,rpm, 400, act_bound, w, b)
                     best_param = ETG_best_param.copy().reshape(-1)
                     for ei in range(ES_TRAIN_STEPS):
-                        # print("===use dual training process===.", eis, ES_TRAIN_STEPS)
                         solutions = ES_solver.ask() # generate foot trajectory space. 
                         fitness_list = []
                         steps = []
                         infos = {}
+                        
                         for key in Param_Dict.keys():
                             infos[key] = 0
                         # solutions->shape:(40, 12), solution->shape:(12,)
@@ -452,7 +453,7 @@ def main():
                             new_points = prior_points+points_add
                             # get the w and b for interacting with env
                             w,b,_ = Opt_with_points(ETG=ETG_agent,ETG_T=args.ETG_T,w0=w0,b0=b0,points=new_points)
-                            episode_reward, episode_step,info = run_EStrain_episode(agent, env, rpm,400,act_bound,w,b)
+                            episode_reward, episode_step,info = run_EStrain_episode(agent, env, rpm, 400, act_bound, w, b)
                             # print('---episode_reward, episode step--->', (episode_reward, episode_step))
                             fitness_list.append(episode_reward)
                             steps.append(episode_step)

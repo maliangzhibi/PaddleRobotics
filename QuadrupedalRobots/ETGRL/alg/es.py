@@ -224,26 +224,27 @@ class SimpleGA:
                param = None,
               ):
 
-    self.num_params = num_params
-    self.sigma_init = sigma_init
-    self.sigma_decay = sigma_decay
-    self.sigma_limit = sigma_limit
-    self.popsize = popsize
+    self.num_params = num_params 
+    self.sigma_init = sigma_init # 用于处理变异时的情况的
+    self.sigma_decay = sigma_decay # 用于sigma的衰退系数
+    self.sigma_limit = sigma_limit # 限制sigma大小
+    self.popsize = popsize # 定义了solution中的元素数量，即可行解的数量
 
-    self.elite_ratio = elite_ratio
-    self.elite_popsize = int(self.popsize * self.elite_ratio)
+    self.elite_ratio = elite_ratio # 定义elite占solution的比例
+    self.elite_popsize = int(self.popsize * self.elite_ratio) # 根据比列计elite的大小
 
-    self.sigma = self.sigma_init
-    self.elite_params = np.zeros((self.elite_popsize, self.num_params)) #(4, 12）
-    self.elite_rewards = np.zeros(self.elite_popsize)
+    self.sigma = self.sigma_init # 
+    self.elite_params = np.zeros((self.elite_popsize, self.num_params)) #(4, 12)，用于建立elite_param，即精英points
+    self.elite_rewards = np.zeros(self.elite_popsize) # 对应的elite的奖励
     # print(r'es.py line239: ', self.elite_params.shape, self.elite_rewards.shape)
+    
     if param is None:
-      self.best_param = np.zeros(self.num_params)
+      self.best_param = np.zeros(self.num_params) # 最佳的足迹点
     else:
-      self.best_param = param
-    self.curr_best_param = self.best_param
-    self.best_reward = 0
-    self.first_iteration = True
+      self.best_param = param # 最佳足迹点
+    self.curr_best_param = self.best_param # 当前最佳足迹点
+    self.best_reward = 0 #
+    self.first_iteration = True 
     self.forget_best = forget_best
     self.weight_decay = weight_decay
 
@@ -256,30 +257,36 @@ class SimpleGA:
     return self.sigma # same sigma for all parameters.
 
   def ask(self):
-    '''returns a list of parameters'''
+    '''returns a list of parameters, named solutions.'''
+    # self.epsilon作为变异参数
     self.epsilon = np.random.randn(self.popsize, self.num_params) * self.sigma
     solutions = []
     
     def mate(a, b):
+      """genetic cross."""
       c = np.copy(a)
+      # 随机选择一部分b的基因和a进行融合
       idx = np.where(np.random.rand((c.size)) > 0.5)
       c[idx] = b[idx]
       return c
     
+    # 在elite中选择反复进行生成、变异，得到新的solutions，solutions为大小为self.popsize的列表
     elite_range = range(self.elite_popsize)
     for i in range(self.popsize):
+      # 随机从self.elite_params中选择两个可行解
       idx_a = np.random.choice(elite_range)
       idx_b = np.random.choice(elite_range)
+      
       if self.first_iteration:
-        solutions.append(self.best_param + self.epsilon[i])
+        solutions.append(self.best_param + self.epsilon[i]) # self.epsilon作为变异参数
       else:
         child_params = mate(self.elite_params[idx_a], self.elite_params[idx_b])
-        solutions.append(child_params + self.epsilon[i])
+        solutions.append(child_params + self.epsilon[i]) # self.epsilon作为变异参数
 
     solutions = np.array(solutions)
     self.solutions = solutions
 
-    return solutions
+    return solutions  
 
   def tell(self, reward_table_result):
     # input must be a numpy float array
@@ -287,6 +294,7 @@ class SimpleGA:
 
     reward_table = np.array(reward_table_result)
     
+    # 根据solutions计算权重的l2衰减因子
     if self.weight_decay > 0:
       l2_decay = compute_weight_decay(self.weight_decay, self.solutions)
       reward_table += l2_decay
@@ -295,13 +303,15 @@ class SimpleGA:
       reward = reward_table
       solution = self.solutions
     else:
+      # reward和solution中的元素对应
       reward = np.concatenate([reward_table, self.elite_rewards])
       solution = np.concatenate([self.solutions, self.elite_params])
+    
     # get the maximum elite_popsize number rewards
     idx = np.argsort(reward)[::-1][0:self.elite_popsize]
 
-    self.elite_rewards = reward[idx] # the n best rewards
-    self.elite_params = solution[idx] # the n best rewards solution
+    self.elite_rewards = reward[idx] # Top n best rewards
+    self.elite_params = solution[idx] # Top n solution param with best rewards
 
     self.curr_best_reward = self.elite_rewards[0]
     self.curr_best_param = np.copy(self.elite_params[0])
